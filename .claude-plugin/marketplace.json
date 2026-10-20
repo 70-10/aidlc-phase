@@ -1,0 +1,5 @@
+{
+  "name": "aidlc-phase",
+  "owner": { "name": "yoshida_nao" },
+  "plugins": [{ "name": "aidlc-phase", "source": "./" }]
+}

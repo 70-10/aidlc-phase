@@ -1,1 +1,1 @@
-{ "name": "aidlc-phase", "description": "AI-DLC のフェーズとステージを、個人の statusLine とは別の行に表示する" }
+{ "name": "aidlc-phase", "description": "Show the AI-DLC phase and stage on a line separate from your own statusLine" }

@@ -1,33 +1,33 @@
 # aidlc-phase
 
-AI-DLC のフェーズとステージを、プロンプトの下に 1 行で表示する Claude Code の mod です。プロジェクトの statusLine を AI-DLC のものに置き換えなくても、いま使っている statusLine を残したままフェーズが見えます。
+A Claude Code mod that shows the AI-DLC phase and stage on one line below the prompt. You keep your own statusLine; the project's statusLine does not have to be replaced by AI-DLC's.
 
 ```
 ⚠ aidlc-phase: [AIDLC] my-feature · INCEPTION [▓▓▓░░░░░░░] 3/9 > User Stories
 ```
 
-本体は `hooks/register.ts`、テストは `hooks/register.test.ts` です。このリポジトリがそのままマーケットプレイスになっています（`.claude-plugin/`）。
+The mod is `hooks/register.ts` and its tests are `hooks/register.test.ts`. The repository is also the marketplace (`.claude-plugin/`).
 
-## 動く条件
+## When it runs
 
-- 作業フォルダかその親に `aidlc/` フォルダがあるとき（AI-DLC のプロジェクト）だけ動きます。それ以外の場所では何も実行せず、何も表示しません
-- 進行中のワークフローが無い（`[AIDLC] ready`）ときは表示を消します
-- function hooks を有効にしておく必要があります（`CLAUDE_CODE_ENABLE_FUNCTION_HOOKS=1`）
+- Only when the working folder or one of its parents has an `aidlc/` folder (an AI-DLC project). Anywhere else it runs nothing and shows nothing
+- When no workflow is in progress (`[AIDLC] ready`), the line is hidden
+- Function hooks must be enabled (`CLAUDE_CODE_ENABLE_FUNCTION_HOOKS=1`)
 
-## 入れ方
+## Install
 
-AI-DLC を使うプロジェクトのフォルダで実行します。
+Run these in the folder of a project that uses AI-DLC:
 
 ```bash
 claude plugin marketplace add 70-10/aidlc-phase --scope local
 claude plugin install aidlc-phase@aidlc-phase --scope local
 ```
 
-`--scope local` は、そのリポジトリの `.claude/settings.local.json` に書き込みます。サブフォルダで実行しても、書き込み先は git のルートです。
+`--scope local` writes to `.claude/settings.local.json` of the repository. Even when run in a subfolder, it writes to the git root.
 
-このマーケットプレイスは auto-update が既定でオフです。更新を自動で受け取るには、`/plugin` の画面でこのマーケットプレイスの auto-update をオンにします。
+Auto-update is off by default for this marketplace. To receive updates automatically, turn on auto-update for it in the `/plugin` screen.
 
-## テスト
+## Test
 
 ```bash
 claude plugin validate .

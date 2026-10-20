@@ -3,6 +3,7 @@ import type { Engine } from 'claude-code/testing'
 import type { On } from 'claude-code'
 
 import { INTENTS_JSON, REQUIREMENTS_RUNNING, ROUGH_MOCKUPS_RUNNING, STAGE_GRAPH, auditEntry, stateText, unitDag } from './fixtures'
+import { EMPTY_LINES, ERROR_LINES, LOADING_LINE, MARK_LEGEND, MARK_SYMBOL, STALE_NOTICE, UNIT_SYMBOL } from './progress'
 
 const PROJECT = '/work/app'
 const PANE = 'aidlc-phase'
@@ -139,7 +140,8 @@ function runCommand($: Engine, isFullscreen: boolean) {
   })
 }
 
-const STAGE_ROW = /^[✓▶?↺・–] \d\.\d /
+const STAGE_ROW = /^[✓▶?↺·–] \d\.\d /
+const JAPANESE = /[\u{3000}-\u{303F}\u{3040}-\u{309F}\u{30A0}-\u{30FF}\u{4E00}-\u{9FFF}\u{FF00}-\u{FFEF}]/u
 
 describe('aidlc-phase pane', () => {
   describe('Positive Cases', () => {
@@ -170,9 +172,9 @@ describe('aidlc-phase pane', () => {
         expect(colors.filter(color => color === 'warning')).toHaveLength(2)
         expect(colors.filter(color => color === 'inactive')).toHaveLength(24)
         expect(await ui.find({ type: 'Text', text: 'stage-pane-ui' })).toBeDefined()
-        expect((await ui.find({ type: 'Text', text: /^実施 / }))?.text).toBe('実施 4/9 完了 ・ 全 33 ステージ')
-        expect(await ui.find({ type: 'Text', text: '✓完了  ▶実行中  ?承認待ち  ↺直し中' })).toBeDefined()
-        expect((await ui.find({ type: 'Text', text: /^色:/ }))?.text).toBe('色: ■ 必ず実施 ■ 条件付き ■ 実施しない')
+        expect((await ui.find({ type: 'Text', text: /^Done / }))?.text).toBe('Done 4/9 · 33 stages total')
+        expect(await ui.find({ type: 'Text', text: '✓done  ▶running  ?approval  ↺revising' })).toBeDefined()
+        expect((await ui.find({ type: 'Text', text: /^Color:/ }))?.text).toBe('Color: ■ always ■ conditional ■ skipped')
         await ui.unmount()
       }
     })
@@ -211,12 +213,12 @@ describe('aidlc-phase pane', () => {
       await $.session.start(START)
       await settle()
       const ui = await mount($, true)
-      expect((await ui.find({ type: 'Text', text: /^現在 / }))?.text).toBe('現在 ▶ 1.6 Rough Mockups')
+      expect((await ui.find({ type: 'Text', text: /^Now / }))?.text).toBe('Now ▶ 1.6 Rough Mockups')
       world.files[STATE] = stateText({ boxes: REQUIREMENTS_RUNNING })
       await $.turn.complete(TURN)
       await settle()
-      expect((await ui.find({ type: 'Text', text: /^現在 / }))?.text).toBe('現在 ▶ 2.3 Requirements Analysis')
-      expect((await ui.find({ type: 'Text', text: /^実施 / }))?.text).toBe('実施 6/9 完了 ・ 全 33 ステージ')
+      expect((await ui.find({ type: 'Text', text: /^Now / }))?.text).toBe('Now ▶ 2.3 Requirements Analysis')
+      expect((await ui.find({ type: 'Text', text: /^Done / }))?.text).toBe('Done 6/9 · 33 stages total')
       await ui.unmount()
     })
 
@@ -244,7 +246,7 @@ describe('aidlc-phase pane', () => {
       older.resolve(output(`${LINE}\n`))
       await settle()
       expect(await ui.find({ type: 'Text', text: 'other' })).toBeDefined()
-      expect((await ui.find({ type: 'Text', text: /^現在 / }))?.text).toBe('現在 ▶ 2.3 Requirements Analysis')
+      expect((await ui.find({ type: 'Text', text: /^Now / }))?.text).toBe('Now ▶ 2.3 Requirements Analysis')
       await ui.unmount()
     })
 
@@ -264,7 +266,7 @@ describe('aidlc-phase pane', () => {
       const ui = await mount($, true)
       expect((await ui.find({ type: 'Text', text: /^▶ 3\.5 / }))?.text).toBe('▶ 3.5 Code Generation  Unit 2/3')
       const units = await ui.findAll({ type: 'Text', text: /^ {4}/ })
-      expect(units.map(unit => unit.text)).toEqual(['    ✓ u1', '    ▶ u2', '    ・ u3'])
+      expect(units.map(unit => unit.text)).toEqual(['    ✓ u1', '    ▶ u2', '    · u3'])
       expect(units.every(unit => unit.props.color === undefined)).toBe(true)
       await ui.unmount()
     })
@@ -315,7 +317,7 @@ describe('aidlc-phase pane', () => {
       world.files[STATE] = stateText({ boxes: { ...ROUGH_MOCKUPS_RUNNING, 'rough-mockups': '!' } })
       await $.turn.complete(TURN)
       await settle()
-      expect(await ui.find({ type: 'Text', text: '最新の状態を読み取れませんでした' })).toBeDefined()
+      expect(await ui.find({ type: 'Text', text: 'Could not read the latest state' })).toBeDefined()
       expect((await ui.findAll({ type: 'Text', text: STAGE_ROW })).filter(row => row.props.inverse !== undefined)).toHaveLength(33)
       await ui.unmount()
     })
@@ -325,8 +327,28 @@ describe('aidlc-phase pane', () => {
       await $.session.start(START)
       await settle()
       const ui = await mount($, true)
-      expect(await ui.find({ type: 'Text', text: '進めている Intent はありません' })).toBeDefined()
-      expect(await ui.find({ type: 'Text', text: /\/aidlc で作業を始める/ })).toBeDefined()
+      const lines = [
+        await ui.find({ type: 'Text', text: 'No intent in progress' }),
+        await ui.find({ type: 'Text', text: /Start work with \/aidlc/ }),
+      ]
+      expect(lines.every(line => line !== undefined)).toBe(true)
+      expect(lines.map(line => line?.props.wrap)).toEqual([undefined, undefined])
+      await ui.unmount()
+    })
+
+    test('writes no Japanese, in the folded pane or in any message it can show', async ($, on) => {
+      stage(on, { files: baseFiles(stateText({ boxes: REQUIREMENTS_RUNNING })) })
+      await $.session.start(START)
+      await settle()
+      const ui = await mount($, true, 'terminal', 20)
+      const texts = (await ui.findAll({ type: 'Text' })).map(text => text.text)
+      expect(texts.some(text => /^✓ [A-Z]+ \d+\/\d+ done/.test(text))).toBe(true)
+      expect(texts.some(text => /^– \d+ skipped$/.test(text))).toBe(true)
+      const messages = [
+        ...Object.values(MARK_SYMBOL), ...Object.values(UNIT_SYMBOL),
+        STALE_NOTICE, ...EMPTY_LINES, ...ERROR_LINES, LOADING_LINE, ...MARK_LEGEND,
+      ]
+      expect([...texts, ...messages].filter(text => JAPANESE.test(text))).toEqual([])
       await ui.unmount()
     })
 
@@ -347,7 +369,7 @@ describe('aidlc-phase pane', () => {
       await $.session.start(START)
       await settle()
       const ui = await mount($, true)
-      expect(await ui.find({ type: 'Text', text: '進み具合を読み取れませんでした' })).toBeDefined()
+      expect(await ui.find({ type: 'Text', text: 'Could not read progress' })).toBeDefined()
       expect(await ui.find({ type: 'Text', text: /\/aidlc --doctor/ })).toBeDefined()
       await ui.unmount()
     })
@@ -366,7 +388,7 @@ describe('aidlc-phase pane', () => {
       await $.turn.complete(TURN)
       await settle()
       const ui = await mount($, true)
-      expect(await ui.find({ type: 'Text', text: '進み具合を読み取れませんでした' })).toBeDefined()
+      expect(await ui.find({ type: 'Text', text: 'Could not read progress' })).toBeDefined()
       await ui.unmount()
     })
   })

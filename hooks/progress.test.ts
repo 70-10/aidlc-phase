@@ -214,8 +214,8 @@ describe('laying out the pane', () => {
     test('sums up the Intent, its count of all 33 stages, and the stage under way', () => {
       expect(summaryLines(progressOf(ROUGH_MOCKUPS_RUNNING))).toEqual([
         'stage-pane-ui',
-        '実施 4/9 完了 ・ 全 33 ステージ',
-        '現在 ▶ 1.6 Rough Mockups',
+        'Done 4/9 · 33 stages total',
+        'Now ▶ 1.6 Rough Mockups',
       ])
     })
 
@@ -233,29 +233,29 @@ describe('laying out the pane', () => {
       const lines = layoutPane(progressOf(REQUIREMENTS_RUNNING), 20, false)
       expect(shape(lines)).toEqual([
         'summary stage-pane-ui',
-        'summary 実施 6/9 完了 ・ 全 33 ステージ',
-        'summary 現在 ▶ 2.3 Requirements Analysis',
+        'summary Done 6/9 · 33 stages total',
+        'summary Now ▶ 2.3 Requirements Analysis',
         'blank',
-        'phase-done INITIALIZATION 実施 3/3 完了',
-        'phase-done IDEATION 実施 2/2 完了 ・ 飛ばす 5',
+        'phase-done INITIALIZATION 3/3 done',
+        'phase-done IDEATION 2/2 done · 5 skipped',
         'phase INCEPTION', 'stage 2.1', 'stage 2.3', 'skipped 7',
         'phase CONSTRUCTION', 'stage 3.5', 'stage 3.6', 'skipped 5',
         'phase OPERATION', 'skipped 7',
         'rule',
-        'legend ✓完了  ▶実行中  ?承認待ち  ↺直し中',
-        'legend ・これから  –飛ばす',
+        'legend ✓done  ▶running  ?approval  ↺revising',
+        'legend ·todo  –skipped',
         'legend-tones',
       ])
     })
 
     test('says all done once every planned stage is done', () => {
       const boxes = { ...REQUIREMENTS_RUNNING, 'requirements-analysis': 'x', 'code-generation': 'x', 'build-and-test': 'x' }
-      expect(summaryLines(progressOf(boxes)).slice(1)).toEqual(['実施 9/9 完了 ・ 全 33 ステージ', '現在 すべて完了'])
+      expect(summaryLines(progressOf(boxes)).slice(1)).toEqual(['Done 9/9 · 33 stages total', 'Now all done'])
     })
 
     test('says a stage waits for approval', () => {
       const boxes = { ...ROUGH_MOCKUPS_RUNNING, 'rough-mockups': '?' }
-      expect(summaryLines(progressOf(boxes))[2]).toBe('現在 ? 1.6 Rough Mockups（承認待ち）')
+      expect(summaryLines(progressOf(boxes))[2]).toBe('Now ? 1.6 Rough Mockups (approval)')
     })
 
     test('lists the Units under the stage under way, with its Unit count', () => {
@@ -273,12 +273,12 @@ describe('laying out the pane', () => {
     test('folds only as much as the height lacks', () => {
       const lines = shape(layoutPane(progressOf(REQUIREMENTS_RUNNING), 45, false))
       expect(lines).toHaveLength(43)
-      expect(lines.filter(line => line.startsWith('phase-done'))).toEqual(['phase-done INITIALIZATION 実施 3/3 完了'])
+      expect(lines.filter(line => line.startsWith('phase-done'))).toEqual(['phase-done INITIALIZATION 3/3 done'])
     })
 
     test('counts the stale notice in the height and puts it first', () => {
       const lines = layoutPane(progressOf(REQUIREMENTS_RUNNING), 20, true)
-      expect(shape(lines)[0]).toBe('notice 最新の状態を読み取れませんでした')
+      expect(shape(lines)[0]).toBe('notice Could not read the latest state')
       expect(lines).toHaveLength(21)
     })
 
@@ -288,7 +288,7 @@ describe('laying out the pane', () => {
         kinds: Object.fromEntries(GRAPH.map(stage => [stage.slug, 'SKIP'])),
       })
       const progress = buildProgress('empty', state, GRAPH, { stage: '' }, null)
-      expect(summaryLines(progress)).toEqual(['empty', '実施 0/0 完了 ・ 全 33 ステージ', '現在 —'])
+      expect(summaryLines(progress)).toEqual(['empty', 'Done 0/0 · 33 stages total', 'Now —'])
     })
   })
 
@@ -296,9 +296,9 @@ describe('laying out the pane', () => {
     test('never folds the summary or the legend, even when nothing fits', () => {
       const lines = shape(layoutPane(progressOf(REQUIREMENTS_RUNNING), 3, false))
       expect(lines.slice(0, 4)).toEqual([
-        'summary stage-pane-ui', 'summary 実施 6/9 完了 ・ 全 33 ステージ', 'summary 現在 ▶ 2.3 Requirements Analysis', 'blank',
+        'summary stage-pane-ui', 'summary Done 6/9 · 33 stages total', 'summary Now ▶ 2.3 Requirements Analysis', 'blank',
       ])
-      expect(lines.slice(-4)).toEqual(['rule', 'legend ✓完了  ▶実行中  ?承認待ち  ↺直し中', 'legend ・これから  –飛ばす', 'legend-tones'])
+      expect(lines.slice(-4)).toEqual(['rule', 'legend ✓done  ▶running  ?approval  ↺revising', 'legend ·todo  –skipped', 'legend-tones'])
       expect(lines).toHaveLength(20)
     })
   })

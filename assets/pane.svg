@@ -1,8 +1,8 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 400 856" width="400" height="856" font-family="ui-monospace, 'SF Mono', Menlo, Consolas, 'Noto Sans Mono CJK JP', monospace" font-size="14" xml:space="preserve">
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 400 856" width="400" height="856" font-family="ui-monospace, 'SF Mono', Menlo, Consolas, monospace" font-size="14" xml:space="preserve">
 <rect x="0" y="0" width="400" height="856" rx="6" fill="#24262e"/>
 <text x="14" y="26" fill="#d4d4d8">my-feature</text>
-<text x="14" y="44" fill="#d4d4d8">実施 7/9 完了 ・ 全 33 ステージ</text>
-<text x="14" y="62" fill="#d4d4d8">現在 ▶ 3.5 Code Generation</text>
+<text x="14" y="44" fill="#d4d4d8">Done 7/9 · 33 stages total</text>
+<text x="14" y="62" fill="#d4d4d8">Now ▶ 3.5 Code Generation</text>
 <text x="14" y="98" fill="#d4d4d8" font-weight="bold">INITIALIZATION</text>
 <text x="14" y="116" fill="#d4d4d8">✓</text>
 <text x="30.8" y="116" fill="#8ea4f5">0.1 Workspace Scaffold</text>
@@ -75,7 +75,7 @@
 <text x="14" y="764" fill="#d4d4d8">–</text>
 <text x="30.8" y="764" fill="#8b8f98">4.7 Feedback &amp; Optimization</text>
 <line x1="14" y1="786" x2="386" y2="786" stroke="#8b8f98" stroke-width="1"/>
-<text x="14" y="806" fill="#d4d4d8">✓完了  ▶実行中  ?承認待ち  ↺直し中</text>
-<text x="14" y="824" fill="#d4d4d8">·これから  –飛ばす</text>
-<text x="14" y="842" fill="#d4d4d8">色: <tspan fill="#8ea4f5">■ 必ず実施</tspan> <tspan fill="#f2b01e">■ 条件付き</tspan> <tspan fill="#8b8f98">■ 実施しない</tspan></text>
+<text x="14" y="806" fill="#d4d4d8">✓done  ▶running  ?approval  ↺revising</text>
+<text x="14" y="824" fill="#d4d4d8">·todo  –skipped</text>
+<text x="14" y="842" fill="#d4d4d8">Color: <tspan fill="#8ea4f5">■ always</tspan> <tspan fill="#f2b01e">■ conditional</tspan> <tspan fill="#8b8f98">■ skipped</tspan></text>
 </svg>

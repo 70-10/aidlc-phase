@@ -204,16 +204,16 @@ export function buildProgress(
 }
 
 export const MARK_SYMBOL: Record<StageMark, string> = {
-  done: '✓', running: '▶', awaiting: '?', revising: '↺', todo: '・', skipped: '–',
+  done: '✓', running: '▶', awaiting: '?', revising: '↺', todo: '·', skipped: '–',
 }
 
-export const UNIT_SYMBOL: Record<UnitMark, string> = { done: '✓', running: '▶', todo: '・' }
+export const UNIT_SYMBOL: Record<UnitMark, string> = { done: '✓', running: '▶', todo: '·' }
 
-export const STALE_NOTICE = '最新の状態を読み取れませんでした'
-export const EMPTY_LINES = ['進めている Intent はありません', '/aidlc で作業を始めると、ここに進み具合が出ます']
-export const ERROR_LINES = ['進み具合を読み取れませんでした', '/aidlc --doctor で原因を確かめられます']
-export const LOADING_LINE = '読み込み中…'
-export const MARK_LEGEND = ['✓完了  ▶実行中  ?承認待ち  ↺直し中', '・これから  –飛ばす']
+export const STALE_NOTICE = 'Could not read the latest state'
+export const EMPTY_LINES = ['No intent in progress', 'Start work with /aidlc to see progress here']
+export const ERROR_LINES = ['Could not read progress', 'Run /aidlc --doctor to find the cause']
+export const LOADING_LINE = 'Loading…'
+export const MARK_LEGEND = ['✓done  ▶running  ?approval  ↺revising', '·todo  –skipped']
 
 export type PaneLine =
   | { kind: 'notice'; text: string }
@@ -232,11 +232,11 @@ export function summaryLines(progress: Progress): string[] {
   const { done, planned } = countPlanned(progress.stages)
   const current = progress.stages.find(stage => stage.slug === progress.current)
   const now = progress.isComplete
-    ? '現在 すべて完了'
+    ? 'Now all done'
     : current === undefined
-      ? '現在 —'
-      : `現在 ${MARK_SYMBOL[current.mark]} ${current.number} ${current.name}${current.mark === 'awaiting' ? '（承認待ち）' : ''}`
-  return [progress.intent, `実施 ${done}/${planned} 完了 ・ 全 ${progress.stages.length} ステージ`, now]
+      ? 'Now —'
+      : `Now ${MARK_SYMBOL[current.mark]} ${current.number} ${current.name}${current.mark === 'awaiting' ? ' (approval)' : ''}`
+  return [progress.intent, `Done ${done}/${planned} · ${progress.stages.length} stages total`, now]
 }
 
 type PhaseBlock = { phase: string; stages: StageRow[]; isDoneFolded: boolean; isSkipFolded: boolean }
@@ -261,7 +261,7 @@ function blockLines(block: PhaseBlock, progress: Progress): PaneLine[] {
   const skipped = block.stages.filter(stage => stage.mark === 'skipped').length
   if (block.isDoneFolded) {
     const planned = block.stages.length - skipped
-    return [{ kind: 'phase-done', text: `${label} 実施 ${planned}/${planned} 完了${skipped > 0 ? ` ・ 飛ばす ${skipped}` : ''}` }]
+    return [{ kind: 'phase-done', text: `${label} ${planned}/${planned} done${skipped > 0 ? ` · ${skipped} skipped` : ''}` }]
   }
   const lines: PaneLine[] = [{ kind: 'phase', text: label }]
   for (const stage of block.stages) {

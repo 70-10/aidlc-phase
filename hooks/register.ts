@@ -10,6 +10,10 @@ const COMMAND_SOURCES = [
 ]
 const LEGACY_HOOK = '.claude/hooks/aidlc-statusline.ts'
 
+function isAidlcRenderer(command: string): boolean {
+  return command.includes('engine statusline') || command.includes('aidlc-statusline.ts')
+}
+
 function parent(dir: string): string | null {
   const cut = dir.replace(/\/+$/, '').lastIndexOf('/')
   return cut <= 0 ? null : dir.slice(0, cut)
@@ -26,7 +30,7 @@ async function statusLineCommand($: EngineInterface, project: string): Promise<s
   for (const source of COMMAND_SOURCES) {
     try {
       const command: unknown = JSON.parse(String(await $.fs.read(`${project}/${source}`)))?.statusLine?.command
-      if (typeof command === 'string' && command.includes('aidlc')) return command
+      if (typeof command === 'string' && isAidlcRenderer(command)) return command
     } catch {
       // A missing or unreadable file only means the next place may have it.
     }
@@ -51,15 +55,21 @@ async function phaseLine($: EngineInterface): Promise<string | undefined> {
   })
   if (exitCode !== 0) return undefined
   const left = (stdout.split('\n')[0] ?? '').replace(/\x1b\[[0-9;]*m/g, '').split(' | ')[0]?.trim() ?? ''
-  return left === '' || left === '[AIDLC] ready' ? undefined : left
+  return left === '' || left.startsWith('[AIDLC] ready') ? undefined : left
 }
 
+let latest = 0
+
 async function refresh($: EngineInterface): Promise<void> {
+  const mine = ++latest
+  let text: string | undefined
   try {
-    $.ui.status(await phaseLine($))
+    text = await phaseLine($)
   } catch {
-    $.ui.status(undefined)
+    text = undefined
   }
+  // Runs are not awaited by turn.complete, so an older one can finish last.
+  if (mine === latest) $.ui.status(text)
 }
 
 export const register: Register = on => {
@@ -71,7 +81,8 @@ export const register: Register = on => {
 
   on('turn.complete', async ($, e, next) => {
     const done = await next(e)
-    await refresh($)
+    // Awaiting would hold the end of every turn on starting the renderer.
+    void refresh($)
     return done
   })
 }

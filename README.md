@@ -2,7 +2,7 @@
 
 A Claude Code mod that shows where an AI-DLC workflow is. By default it lists all 33 AI-DLC stages in a pane beside the chat: which stages this Intent runs, which it skips, how far each one is, and the stage under way. It can show one line below the prompt instead. Either way you keep your own statusLine; the project's statusLine does not have to be replaced by AI-DLC's.
 
-![The pane listing all 33 AI-DLC stages, with the stage under way highlighted](assets/pane.png)
+![The pane listing all 33 AI-DLC stages, with the stage under way highlighted](assets/pane.svg)
 
 The one-line display:
 

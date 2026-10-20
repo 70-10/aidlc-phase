@@ -1,5 +1,8 @@
-import { describe, expect, test } from 'claude-code/testing'
+import { describe, expect, test as kitTest } from 'claude-code/testing'
+import type { TestBody } from 'claude-code/testing'
 import type { On } from 'claude-code'
+
+const test = (name: string, body: TestBody) => kitTest(name, { options: { display: 'statusline' } }, body)
 
 const PROJECT = '/work/app'
 const SHIPPED = 'bun "$CLAUDE_PROJECT_DIR/.claude/tools/aidlc.ts" engine statusline'

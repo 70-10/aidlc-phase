@@ -1,1 +1,14 @@
-{ "name": "aidlc-phase", "description": "Show the AI-DLC phase and stage on a line separate from your own statusLine" }
+{
+  "name": "aidlc-phase",
+  "description": "Show every AI-DLC stage and where the work is in a pane beside the chat, or the phase and stage on a line separate from your own statusLine",
+  "types": "./types/index.d.ts",
+  "userConfig": {
+    "display": {
+      "type": "string",
+      "title": "Display",
+      "description": "pane: a pane beside the chat listing every stage. statusline: one line below the prompt.",
+      "default": "pane",
+      "options": ["pane", "statusline"]
+    }
+  }
+}

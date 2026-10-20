@@ -41,7 +41,7 @@ function drawLine({ Text }: ElementTable, line: PaneLine, size: PaneSize) {
     case 'unit':
       return <Text wrap="truncate-end">{`    ${UNIT_SYMBOL[line.unit.mark]} ${line.unit.name}`}</Text>
     case 'skipped':
-      return <Text wrap="truncate-end">– <Text color={TONE_COLORS.none}>飛ばす {String(line.count)} 件</Text></Text>
+      return <Text wrap="truncate-end">– <Text color={TONE_COLORS.none}>{String(line.count)} skipped</Text></Text>
     case 'rule':
       return <Text dimColor>{'─'.repeat(Math.max(1, size.bodyColumns))}</Text>
     case 'legend':
@@ -49,8 +49,8 @@ function drawLine({ Text }: ElementTable, line: PaneLine, size: PaneSize) {
     case 'legend-tones':
       return (
         <Text wrap="truncate-end">
-          色: <Text color={TONE_COLORS.always}>■ 必ず実施</Text> <Text color={TONE_COLORS.conditional}>■ 条件付き</Text>{' '}
-          <Text color={TONE_COLORS.none}>■ 実施しない</Text>
+          Color: <Text color={TONE_COLORS.always}>■ always</Text> <Text color={TONE_COLORS.conditional}>■ conditional</Text>{' '}
+          <Text color={TONE_COLORS.none}>■ skipped</Text>
         </Text>
       )
   }

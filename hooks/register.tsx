@@ -120,12 +120,20 @@ async function readMarker($: EngineInterface, record: string, stateFile: string)
   return { text: String(await $.fs.read(path)), isFresh: marker.mtimeMs >= state.mtimeMs }
 }
 
-async function readUnits($: EngineInterface, record: string, active: string): Promise<UnitProgress | null> {
+async function readUnitNames($: EngineInterface, record: string): Promise<string[]> {
   try {
     const dag = await readOptional($, `${record}/inception/units-generation/unit-of-work-dependency.md`)
-    if (dag === null) return null
-    const units = unitNames(dag)
-    if (units.length === 0) return null
+    return dag === null ? [] : unitNames(dag)
+  } catch (error) {
+    // The Unit list is extra: the stages still show without it, as on AI-DLC's own line.
+    $.ui.log(`aidlc-phase: Unit list not read: ${messageOf(error)}`, { to: 'debug' })
+    return []
+  }
+}
+
+async function readUnits($: EngineInterface, record: string, units: readonly string[], active: string): Promise<UnitProgress | null> {
+  if (units.length === 0) return null
+  try {
     const audit = `${record}/audit`
     const files = (await $.fs.list(audit)).filter(entry => entry.name.endsWith('.md'))
     const audits = await Promise.all(files.map(async entry => String(await $.fs.read(`${audit}/${entry.name}`))))
@@ -147,8 +155,9 @@ async function loadProgress($: EngineInterface, project: string, text: string): 
   const state = String(await $.fs.read(stateFile))
   const graph = readStageGraph(String(await $.fs.read(`${project}/${STAGE_GRAPH}`)))
   const shown = shownStep(state, await readMarker($, record, stateFile))
-  const units = isUnitMajorConstruction(state) ? await readUnits($, record, shown.unit) : null
-  return buildProgress(intent.slug, state, graph, shown, units)
+  const names = await readUnitNames($, record)
+  const units = isUnitMajorConstruction(state) ? await readUnits($, record, names, shown.unit) : null
+  return buildProgress(intent.slug, state, graph, shown, units, names.length)
 }
 
 function messageOf(error: unknown): string {

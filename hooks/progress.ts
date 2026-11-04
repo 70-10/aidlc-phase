@@ -123,7 +123,7 @@ export function readStageProgress(state: string, graph: readonly StageInfo[]): S
     const mark = marks.get(stage.slug)
     if (mark === undefined) throw new ProgressReadError(`aidlc-state.md has no row for ${stage.slug}`)
     const tone: StageTone = mark === 'skipped' ? 'none' : stage.execution === 'ALWAYS' ? 'always' : 'conditional'
-    return { slug: stage.slug, number: stage.number, name: stage.name, phase: stage.phase, mark, tone }
+    return { slug: stage.slug, number: stage.number, name: stage.name, phase: stage.phase, mark, tone, isPerUnit: stage.isPerUnit }
   })
 }
 
@@ -199,6 +199,7 @@ export function buildProgress(
   graph: readonly StageInfo[],
   shown: { stage: string },
   units: UnitProgress | null,
+  unitTotal: number,
 ): Progress {
   const stages = readStageProgress(state, graph)
   const slugs = new Set(stages.map(stage => stage.slug))
@@ -207,8 +208,8 @@ export function buildProgress(
   const { done, planned } = countPlanned(stages)
   const status = extractField(state, 'Status')
   const isComplete = status === 'Completed' || status === 'Complete' || (planned > 0 && done === planned)
-  const isPerUnit = graph.find(stage => stage.slug === current)?.isPerUnit === true
-  return { intent, stages, current, isComplete, units: isPerUnit ? units : null }
+  const isPerUnit = stages.find(stage => stage.slug === current)?.isPerUnit === true
+  return { intent, stages, current, isComplete, units: isPerUnit ? units : null, unitTotal }
 }
 
 export const MARK_SYMBOL: Record<StageMark, string> = {
@@ -229,6 +230,7 @@ export type PaneLine =
   | { kind: 'blank' }
   | { kind: 'phase'; text: string }
   | { kind: 'phase-done'; text: string }
+  | { kind: 'group'; text: string }
   | { kind: 'stage'; stage: StageRow; isCurrent: boolean; unitLabel: string }
   | { kind: 'unit'; unit: UnitRow }
   | { kind: 'skipped'; count: number }
@@ -272,8 +274,12 @@ function blockLines(block: PhaseBlock, progress: Progress): PaneLine[] {
     return [{ kind: 'phase-done', text: `${label} ${planned}/${planned} done${skipped > 0 ? ` · ${skipped} skipped` : ''}` }]
   }
   const lines: PaneLine[] = [{ kind: 'phase', text: label }]
-  for (const stage of block.stages) {
-    if (block.isSkipFolded && stage.mark === 'skipped') continue
+  const shown = block.stages.filter(stage => !(block.isSkipFolded && stage.mark === 'skipped'))
+  const isGrouped = progress.unitTotal >= 2 && shown.some(stage => stage.isPerUnit)
+  for (const [index, stage] of shown.entries()) {
+    if (isGrouped && stage.isPerUnit !== shown[index - 1]?.isPerUnit) {
+      lines.push({ kind: 'group', text: stage.isPerUnit ? `Per Unit (${progress.unitTotal})` : 'Once for all Units' })
+    }
     const isCurrent = stage.slug === progress.current
     const units = isCurrent ? progress.units : null
     lines.push({ kind: 'stage', stage, isCurrent, unitLabel: units ? `Unit ${units.current}/${units.total}` : '' })

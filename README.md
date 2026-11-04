@@ -2,7 +2,7 @@
 
 A Claude Code mod that shows where an AI-DLC workflow is. By default it lists all 33 AI-DLC stages in a pane beside the chat: which stages this Intent runs, which it skips, how far each one is, and the stage under way. It can show one line below the prompt instead. Either way you keep your own statusLine; the project's statusLine does not have to be replaced by AI-DLC's.
 
-![The pane listing all 33 AI-DLC stages, with the stage under way highlighted and its three Units listed below it](assets/pane.svg)
+![The pane listing all 33 AI-DLC stages, with the stage under way highlighted, its three Units listed below it, and the stages split into those run per Unit and those run once](assets/pane.svg)
 
 The one-line display:
 
@@ -25,7 +25,8 @@ The mod is `hooks/register.tsx`. It reads the AI-DLC files in `hooks/progress.ts
 - `/aidlc-phase` opens it at any width
 - Once you close it, neither the pane nor the line shows for the rest of the session, until `/aidlc-phase` opens it again
 - It is updated when the session starts and at the end of each reply
-- When Construction works through the Units one at a time, the stage under way lists each Unit (approved, under way, not started) and counts them, as in the image above. Only the stages that run once per Unit (3.1 to 3.5) list them; 3.6 Build and Test runs once for all the Units and lists none
+- When the Intent has two or more Units, CONSTRUCTION splits into `Per Unit`, the stages run once for each Unit (3.1 to 3.5), and `Once for all Units`, the stages run once after every Unit (3.6 onward)
+- When Construction works through the Units one at a time, the stage under way lists each Unit (approved, under way, not started) and counts them, as in the image above. Only the `Per Unit` stages list them
 - When the height does not fit every stage, finished phases fold into one row each, then the skipped stages of each phase into one row
 - When the newest state cannot be read, the last list stays with a note above it; with nothing read before, the pane says how to check (`/aidlc --doctor`)
 

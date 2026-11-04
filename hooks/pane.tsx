@@ -31,6 +31,8 @@ function drawLine({ Text }: ElementTable, line: PaneLine, size: PaneSize) {
       return <Text bold>{line.text}</Text>
     case 'phase-done':
       return <Text wrap="truncate-end">✓ {line.text}</Text>
+    case 'group':
+      return <Text wrap="truncate-end">{` ${line.text}`}</Text>
     case 'stage':
       return (
         <Text inverse={line.isCurrent} bold={line.isCurrent} wrap="truncate-end">

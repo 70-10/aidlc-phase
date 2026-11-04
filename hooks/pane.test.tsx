@@ -250,6 +250,24 @@ describe('aidlc-phase pane', () => {
       await ui.unmount()
     })
 
+    test('working stage by stage with three Units, heads the stages run per Unit apart from those run once', async ($, on) => {
+      const files = {
+        ...baseFiles(stateText({
+          boxes: { ...REQUIREMENTS_RUNNING, 'requirements-analysis': 'x', 'code-generation': '-' },
+          fields: { 'Lifecycle Phase': 'CONSTRUCTION', 'Construction Iteration': 'stage-major' },
+        })),
+        [`${RECORD}/inception/units-generation/unit-of-work-dependency.md`]: unitDag(['u1', 'u2', 'u3']),
+      }
+      stage(on, { files, stdout: '[AIDLC] stage-pane-ui · CONSTRUCTION [▓▓▓▓▓▓▓░░░] 7/9 > Code Generation\n' })
+      await $.session.start(START)
+      await settle()
+      const ui = await mount($, true)
+      expect(await ui.find({ type: 'Text', text: ' Per Unit (3)' })).toBeDefined()
+      expect(await ui.find({ type: 'Text', text: ' Once for all Units' })).toBeDefined()
+      expect(await ui.findAll({ type: 'Text', text: /^ {4}/ })).toEqual([])
+      await ui.unmount()
+    })
+
     test('working one Unit at a time, lists the Units indented under the stage under way, uncolored', async ($, on) => {
       const files = {
         ...baseFiles(stateText({

@@ -29,10 +29,10 @@ import {
 
 const GRAPH = readStageGraph(STAGE_GRAPH)
 
-function progressOf(boxes: Record<string, string>, fields: Record<string, string> = {}) {
+function progressOf(boxes: Record<string, string>, fields: Record<string, string> = {}, unitTotal = 0) {
   const state = stateText({ boxes, fields })
   const current = Object.entries(boxes).find(([, box]) => box === '-' || box === '?')?.[0] ?? ''
-  return buildProgress('stage-pane-ui', state, GRAPH, { stage: current }, null)
+  return buildProgress('stage-pane-ui', state, GRAPH, { stage: current }, null, unitTotal)
 }
 
 function shape(lines: readonly PaneLine[]): string[] {
@@ -41,7 +41,7 @@ function shape(lines: readonly PaneLine[]): string[] {
       case 'stage': return `stage ${line.stage.number}${line.unitLabel ? ` ${line.unitLabel}` : ''}`
       case 'unit': return `unit ${line.unit.name} ${line.unit.mark}`
       case 'skipped': return `skipped ${line.count}`
-      case 'notice': case 'summary': case 'phase': case 'phase-done': case 'legend': return `${line.kind} ${line.text}`
+      case 'notice': case 'summary': case 'phase': case 'phase-done': case 'group': case 'legend': return `${line.kind} ${line.text}`
       default: return line.kind
     }
   })
@@ -166,7 +166,7 @@ describe('reading AI-DLC files', () => {
         ['workspace-scaffold', 'workspace-detection', 'state-init', 'intent-capture', 'rough-mockups',
           'reverse-engineering', 'requirements-analysis', 'code-generation', 'build-and-test'].map(slug => [slug, 'x']),
       )
-      const progress = buildProgress('stage-pane-ui', stateText({ boxes }), GRAPH, { stage: '' }, null)
+      const progress = buildProgress('stage-pane-ui', stateText({ boxes }), GRAPH, { stage: '' }, null, 0)
       expect(progress.isComplete).toBe(true)
     })
   })
@@ -276,15 +276,43 @@ describe('laying out the pane', () => {
     test('lists no Units under Build and Test, which runs once for all Units', () => {
       const boxes = { ...REQUIREMENTS_RUNNING, 'requirements-analysis': 'x', 'code-generation': 'x', 'build-and-test': '-' }
       const state = stateText({ boxes, fields: { 'Lifecycle Phase': 'CONSTRUCTION', 'Construction Iteration': 'unit-major' } })
-      const progress = buildProgress('stage-pane-ui', state, GRAPH, { stage: 'build-and-test' }, unitProgressOf(['u1', 'u2', 'u3'], [], ''))
+      const progress = buildProgress('stage-pane-ui', state, GRAPH, { stage: 'build-and-test' }, unitProgressOf(['u1', 'u2', 'u3'], [], ''), 3)
       expect(progress.units).toBeNull()
       const lines = shape(layoutPane(progress, 60, false))
       expect(lines).toContain('stage 3.6')
       expect(lines.filter(line => line.startsWith('unit '))).toEqual([])
     })
+
+    test('with three Units, heads the stages run per Unit apart from those run once for all', () => {
+      const progress = progressOf({ ...REQUIREMENTS_RUNNING, 'requirements-analysis': 'x', 'code-generation': '-' }, {}, 3)
+      const lines = shape(layoutPane(progress, 60, false))
+      const at = lines.indexOf('phase CONSTRUCTION')
+      expect(lines.slice(at, at + 11)).toEqual([
+        'phase CONSTRUCTION', 'group Per Unit (3)', 'stage 3.1', 'stage 3.2', 'stage 3.3', 'stage 3.4', 'stage 3.5',
+        'group Once for all Units', 'stage 3.6', 'stage 3.7', 'phase OPERATION',
+      ])
+      expect(lines.filter(line => line.startsWith('group '))).toHaveLength(2)
+    })
   })
 
   describe('Edge Cases', () => {
+    test('with one Unit, or none read, heads no stages', () => {
+      const boxes = { ...REQUIREMENTS_RUNNING, 'requirements-analysis': 'x', 'code-generation': '-' }
+      for (const unitTotal of [0, 1]) {
+        const lines = shape(layoutPane(progressOf(boxes, {}, unitTotal), 60, false))
+        expect(lines.filter(line => line.startsWith('group '))).toEqual([])
+      }
+    })
+
+    test('with the skipped stages folded, puts each heading over the first stage still shown', () => {
+      const progress = progressOf({ ...REQUIREMENTS_RUNNING, 'requirements-analysis': 'x', 'code-generation': '-' }, {}, 3)
+      const lines = shape(layoutPane(progress, 3, false))
+      const at = lines.indexOf('phase CONSTRUCTION')
+      expect(lines.slice(at, at + 6)).toEqual([
+        'phase CONSTRUCTION', 'group Per Unit (3)', 'stage 3.5', 'group Once for all Units', 'stage 3.6', 'skipped 5',
+      ])
+    })
+
     test('folds only as much as the height lacks', () => {
       const lines = shape(layoutPane(progressOf(REQUIREMENTS_RUNNING), 45, false))
       expect(lines).toHaveLength(43)
@@ -302,7 +330,7 @@ describe('laying out the pane', () => {
         boxes: {},
         kinds: Object.fromEntries(GRAPH.map(stage => [stage.slug, 'SKIP'])),
       })
-      const progress = buildProgress('empty', state, GRAPH, { stage: '' }, null)
+      const progress = buildProgress('empty', state, GRAPH, { stage: '' }, null, 0)
       expect(summaryLines(progress)).toEqual(['empty', 'Done 0/0 · 33 stages total', 'Now —'])
     })
   })

@@ -9,6 +9,7 @@ export type StageRow = {
   phase: string
   mark: StageMark
   tone: StageTone
+  isPerUnit: boolean
 }
 
 export type UnitMark = 'done' | 'running' | 'todo'
@@ -23,6 +24,7 @@ export type Progress = {
   current: string | null
   isComplete: boolean
   units: UnitProgress | null
+  unitTotal: number
 }
 
 export type PaneView =

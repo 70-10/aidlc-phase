@@ -1,11 +1,9 @@
 import { describe, expect, test } from 'claude-code/testing'
 
 import {
-  approvedUnits,
   buildProgress,
   countPlanned,
   intentFromLine,
-  isUnitMajorConstruction,
   layoutPane,
   readStageGraph,
   readStageProgress,
@@ -13,8 +11,9 @@ import {
   shownStep,
   spaceFromCursor,
   summaryLines,
+  unitHeader,
   unitNames,
-  unitProgressOf,
+  readUnitLedger,
 } from './progress'
 import type { PaneLine } from './progress'
 import {
@@ -22,24 +21,46 @@ import {
   REQUIREMENTS_RUNNING,
   ROUGH_MOCKUPS_RUNNING,
   STAGE_GRAPH,
-  auditEntry,
+  auditOf,
   stateText,
   unitDag,
+  unitEvent,
 } from './fixtures'
 
 const GRAPH = readStageGraph(STAGE_GRAPH)
 
+const NO_UNITS = { names: [], ledger: readUnitLedger([], []) }
+
 function progressOf(boxes: Record<string, string>, fields: Record<string, string> = {}) {
   const state = stateText({ boxes, fields })
   const current = Object.entries(boxes).find(([, box]) => box === '-' || box === '?')?.[0] ?? ''
-  return buildProgress('stage-pane-ui', state, GRAPH, { stage: current }, null)
+  return buildProgress('stage-pane-ui', state, GRAPH, { stage: current, unit: '' }, NO_UNITS)
 }
+
+const THREE = ['auth', 'orders', 'billing']
+const WITH_FUNCTIONAL_DESIGN = { 'functional-design': 'EXECUTE' }
+
+// auth has finished every stage, orders has finished Functional Design and is in Code Generation.
+const ORDERS_IN_CODE_GENERATION = auditOf(
+  unitEvent('UNIT_COMPLETED', 'functional-design', 'auth', '2026-10-20T01:00:00Z'),
+  unitEvent('UNIT_COMPLETED', 'code-generation', 'auth', '2026-10-20T02:00:00Z'),
+  unitEvent('UNIT_COMPLETED', 'functional-design', 'orders', '2026-10-20T03:00:00Z'),
+  unitEvent('UNIT_STARTED', 'code-generation', 'orders', '2026-10-20T04:00:00Z'),
+)
+
+function unitsProgress(boxes: Record<string, string>, audits: string[], shown = { stage: '', unit: '' }, names = THREE) {
+  const state = stateText({ boxes, kinds: WITH_FUNCTIONAL_DESIGN })
+  const current = shown.stage || (Object.entries(boxes).find(([, box]) => box === '-' || box === '?')?.[0] ?? '')
+  return buildProgress('stage-pane-ui', state, GRAPH, { ...shown, stage: current }, { names, ledger: readUnitLedger(audits, names) })
+}
+
+const CODE_GENERATION_RUNNING = { ...REQUIREMENTS_RUNNING, 'requirements-analysis': 'x', 'functional-design': 'x', 'code-generation': '-' }
 
 function shape(lines: readonly PaneLine[]): string[] {
   return lines.map(line => {
     switch (line.kind) {
-      case 'stage': return `stage ${line.stage.number}${line.unitLabel ? ` ${line.unitLabel}` : ''}`
-      case 'unit': return `unit ${line.unit.name} ${line.unit.mark}`
+      case 'stage': return [`stage ${line.stage.number}`, line.bracket ?? '', line.unitCount].filter(Boolean).join(' ')
+      case 'units': return `units ${line.units.map(unit => `${unit.mark}:${unit.name}`).join(' ')}`
       case 'skipped': return `skipped ${line.count}`
       case 'notice': case 'summary': case 'phase': case 'phase-done': case 'legend': return `${line.kind} ${line.text}`
       default: return line.kind
@@ -54,7 +75,12 @@ describe('reading AI-DLC files', () => {
       expect(GRAPH.some(stage => stage.slug === 'acme-review')).toBe(false)
       expect(GRAPH[23]).toEqual({
         slug: 'code-generation', number: '3.5', name: 'Code Generation', phase: 'construction', execution: 'ALWAYS',
+        isPerUnit: true,
       })
+    })
+
+    test('runs 3.1 to 3.5 once per Unit, and every other stage once', () => {
+      expect(GRAPH.filter(stage => stage.isPerUnit).map(stage => stage.number)).toEqual(['3.1', '3.2', '3.3', '3.4', '3.5'])
     })
 
     test('marks the 9 stages this Intent runs, 7 always and 2 conditional, and the rest as not run', () => {
@@ -109,16 +135,36 @@ describe('reading AI-DLC files', () => {
       expect(recordDirFor(intents, 'pane')).toBe('261020-pane')
     })
 
-    test('working one Unit at a time, counts Unit 2 of 3 with u1 approved and u2 under way', () => {
-      const state = stateText({ fields: { 'Lifecycle Phase': 'CONSTRUCTION', 'Construction Iteration': 'unit-major' } })
-      expect(isUnitMajorConstruction(state)).toBe(true)
-      const units = unitNames(unitDag(['u1', 'u2', 'u3']))
-      const approved = approvedUnits(['# Audit\n\n' + auditEntry('GATE_APPROVED', 'u1', '2026-10-20T01:00:00Z')], units)
-      expect(unitProgressOf(units, approved, 'u2')).toEqual({
-        current: 2,
-        total: 3,
-        units: [{ name: 'u1', mark: 'done' }, { name: 'u2', mark: 'running' }, { name: 'u3', mark: 'todo' }],
-      })
+    test('reads the Units from the yaml block that lists them, whatever its heading says', () => {
+      const localized = unitDag(THREE).replace('## Machine-Readable Edge Block', '## 機械で読む形')
+      const withOtherYaml = ['```yaml', 'note: not the units', '```', '', localized].join('\n')
+      expect(unitNames(withOtherYaml)).toEqual(THREE)
+    })
+
+    test('reads from the audit which Unit finished which stage, and the Unit still open', () => {
+      const ledger = readUnitLedger([ORDERS_IN_CODE_GENERATION], unitNames(unitDag(THREE)))
+      expect([...ledger.completed.get('functional-design')!].sort()).toEqual(['auth', 'orders'])
+      expect([...ledger.completed.get('code-generation')!]).toEqual(['auth'])
+      expect(ledger.open).toBe('orders')
+    })
+
+    test('with orders in Code Generation, counts the Units done per stage and marks Functional Design partly done', () => {
+      const progress = unitsProgress(CODE_GENERATION_RUNNING, [ORDERS_IN_CODE_GENERATION])
+      const row = (slug: string) => progress.stages.find(stage => stage.slug === slug)!
+      expect([row('functional-design').mark, row('functional-design').unitsDone]).toEqual(['partly', 2])
+      expect([row('code-generation').mark, row('code-generation').unitsDone]).toEqual(['running', 1])
+      expect(row('nfr-design').unitsDone).toBeNull()
+      expect(row('build-and-test').unitsDone).toBeNull()
+      expect(progress.units).toEqual([
+        { name: 'auth', mark: 'done' }, { name: 'orders', mark: 'running' }, { name: 'billing', mark: 'todo' },
+      ])
+    })
+
+    test('once Build and Test is under way, counts every Unit done', () => {
+      const boxes = { ...CODE_GENERATION_RUNNING, 'code-generation': 'x', 'build-and-test': '-' }
+      const progress = unitsProgress(boxes, [])
+      expect(progress.stages.find(stage => stage.slug === 'functional-design')).toMatchObject({ mark: 'done', unitsDone: 3 })
+      expect(progress.units?.every(unit => unit.mark === 'done')).toBe(true)
     })
 
     test('shows the step AI-DLC last put to the person while nothing has written the state since', () => {
@@ -137,23 +183,42 @@ describe('reading AI-DLC files', () => {
       expect(rows).toHaveLength(33)
     })
 
-    test('a later rejection takes a Unit back out of the approved ones', () => {
-      const audit = [
-        auditEntry('GATE_APPROVED', 'u1', '2026-10-20T01:00:00Z'),
-        auditEntry('GATE_REJECTED', 'u1', '2026-10-20T02:00:00Z'),
-      ].join('\n')
-      expect(approvedUnits(['# Audit\n\n' + audit], ['u1', 'u2'])).toEqual([])
+    test('a later start takes back the Unit\'s earlier finish of that stage, across audit files', () => {
+      const restarted = auditOf(unitEvent('UNIT_STARTED', 'functional-design', 'auth', '2026-10-20T05:00:00Z'))
+      const ledger = readUnitLedger([restarted, ORDERS_IN_CODE_GENERATION], THREE)
+      expect([...ledger.completed.get('functional-design')!]).toEqual(['orders'])
+      expect(ledger.open).toBe('auth')
     })
 
-    test('working stage by stage, shows no Unit progress', () => {
-      const state = stateText({ fields: { 'Lifecycle Phase': 'CONSTRUCTION', 'Construction Iteration': 'stage-major' } })
-      expect(isUnitMajorConstruction(state)).toBe(false)
+    test('counts a Unit skipped for a stage as done with it', () => {
+      const skipped = auditOf(unitEvent('UNIT_SKIPPED', 'functional-design', 'billing', '2026-10-20T05:00:00Z'))
+      const progress = unitsProgress(CODE_GENERATION_RUNNING, [ORDERS_IN_CODE_GENERATION, skipped])
+      expect(progress.stages.find(stage => stage.slug === 'functional-design')).toMatchObject({ mark: 'done', unitsDone: 3 })
     })
 
-    test('with no Unit list, or every Unit approved, shows no Unit progress', () => {
+    test('keeps AI-DLC\'s running, approval and revising marks on a stage some Units have finished', () => {
+      for (const [box, mark] of [['-', 'running'], ['?', 'awaiting'], ['R', 'revising']] as const) {
+        const boxes = { ...CODE_GENERATION_RUNNING, 'functional-design': box }
+        const progress = unitsProgress(boxes, [ORDERS_IN_CODE_GENERATION], { stage: 'code-generation', unit: 'orders' })
+        expect(progress.stages.find(stage => stage.slug === 'functional-design')).toMatchObject({ mark, unitsDone: 2 })
+      }
+    })
+
+    test('names the Unit AI-DLC last put to the person as the one under way', () => {
+      const progress = unitsProgress(CODE_GENERATION_RUNNING, [], { stage: 'code-generation', unit: 'billing' })
+      expect(progress.units?.find(unit => unit.mark === 'running')?.name).toBe('billing')
+    })
+
+    test('trusts a stage AI-DLC marks done when the audit has no Unit record of it', () => {
+      const progress = unitsProgress(CODE_GENERATION_RUNNING, [])
+      expect(progress.stages.find(stage => stage.slug === 'functional-design')).toMatchObject({ mark: 'done', unitsDone: 3 })
+    })
+
+    test('with one Unit, or no Unit list, keeps no Units', () => {
       expect(unitNames('# Unit of Work Dependency\n\nno edge block')).toEqual([])
-      expect(unitProgressOf([], [], '')).toBeNull()
-      expect(unitProgressOf(['u1'], ['u1'], '')).toBeNull()
+      const progress = unitsProgress(CODE_GENERATION_RUNNING, [ORDERS_IN_CODE_GENERATION], undefined, ['auth'])
+      expect(progress.units).toBeNull()
+      expect(progress.stages.every(stage => stage.unitsDone === null)).toBe(true)
     })
 
     test('counts every planned stage done as all done', () => {
@@ -161,7 +226,7 @@ describe('reading AI-DLC files', () => {
         ['workspace-scaffold', 'workspace-detection', 'state-init', 'intent-capture', 'rough-mockups',
           'reverse-engineering', 'requirements-analysis', 'code-generation', 'build-and-test'].map(slug => [slug, 'x']),
       )
-      const progress = buildProgress('stage-pane-ui', stateText({ boxes }), GRAPH, { stage: '' }, null)
+      const progress = buildProgress('stage-pane-ui', stateText({ boxes }), GRAPH, { stage: '', unit: '' }, NO_UNITS)
       expect(progress.isComplete).toBe(true)
     })
   })
@@ -214,7 +279,7 @@ describe('laying out the pane', () => {
     test('sums up the Intent, its count of all 33 stages, and the stage under way', () => {
       expect(summaryLines(progressOf(ROUGH_MOCKUPS_RUNNING))).toEqual([
         'stage-pane-ui',
-        'Done 4/9 · 33 stages total',
+        'Done 4/9 stages of 33',
         'Now ▶ 1.6 Rough Mockups',
       ])
     })
@@ -233,7 +298,7 @@ describe('laying out the pane', () => {
       const lines = layoutPane(progressOf(REQUIREMENTS_RUNNING), 20, false)
       expect(shape(lines)).toEqual([
         'summary stage-pane-ui',
-        'summary Done 6/9 · 33 stages total',
+        'summary Done 6/9 stages of 33',
         'summary Now ▶ 2.3 Requirements Analysis',
         'blank',
         'phase-done INITIALIZATION 3/3 done',
@@ -250,7 +315,7 @@ describe('laying out the pane', () => {
 
     test('says all done once every planned stage is done', () => {
       const boxes = { ...REQUIREMENTS_RUNNING, 'requirements-analysis': 'x', 'code-generation': 'x', 'build-and-test': 'x' }
-      expect(summaryLines(progressOf(boxes)).slice(1)).toEqual(['Done 9/9 · 33 stages total', 'Now all done'])
+      expect(summaryLines(progressOf(boxes)).slice(1)).toEqual(['Done 9/9 stages of 33', 'Now all done'])
     })
 
     test('says a stage waits for approval', () => {
@@ -258,18 +323,56 @@ describe('laying out the pane', () => {
       expect(summaryLines(progressOf(boxes))[2]).toBe('Now ? 1.6 Rough Mockups (approval)')
     })
 
-    test('lists the Units under the stage under way, with its Unit count', () => {
-      const progress = {
-        ...progressOf({ ...REQUIREMENTS_RUNNING, 'requirements-analysis': 'x', 'code-generation': '-' }),
-        units: unitProgressOf(['u1', 'u2', 'u3'], ['u1'], 'u2'),
-      }
+    test('brackets the stages run per Unit under the Units, with the stages run once for all below it', () => {
+      const progress = unitsProgress(CODE_GENERATION_RUNNING, [ORDERS_IN_CODE_GENERATION])
       const lines = shape(layoutPane(progress, 60, false))
-      const at = lines.indexOf('stage 3.5 Unit 2/3')
-      expect(lines.slice(at, at + 4)).toEqual(['stage 3.5 Unit 2/3', 'unit u1 done', 'unit u2 running', 'unit u3 todo'])
+      const at = lines.indexOf('phase CONSTRUCTION')
+      expect(lines.slice(at, at + 11)).toEqual([
+        'phase CONSTRUCTION', 'units done:auth running:orders todo:billing',
+        'stage 3.1 mid 2/3', 'stage 3.2 mid', 'stage 3.3 mid', 'stage 3.4 mid', 'stage 3.5 end 1/3',
+        'once', 'stage 3.6', 'stage 3.7', 'phase OPERATION',
+      ])
+    })
+
+    test('with Units, sums up the stages run of all 33, the Units done, and the Unit under way', () => {
+      const progress = unitsProgress(CODE_GENERATION_RUNNING, [ORDERS_IN_CODE_GENERATION])
+      expect(summaryLines(progress).slice(1)).toEqual(['Done 7/10 stages of 33 · Units 1/3', 'Now ▶ 3.5 Code Generation · orders'])
+      expect(shape(layoutPane(progress, 60, false)).filter(line => line.startsWith('legend '))).toEqual([
+        'legend ✓done  ▶running  ?approval  ↺revising', 'legend ·todo  –skipped  ◐partly  n/N Units done',
+      ])
+    })
+
+    test('lists every Unit after the bracket when they fit, and counts them when they do not', () => {
+      const units = [
+        { name: 'catalog', mark: 'done' }, { name: 'checkout', mark: 'done' }, { name: 'payments', mark: 'running' },
+        { name: 'notifications', mark: 'todo' }, { name: 'reporting', mark: 'todo' },
+      ] as const
+      const text = (columns: number, list: readonly { name: string; mark: 'done' | 'running' | 'partly' | 'todo' }[]) =>
+        unitHeader(list, columns).map(part => part.text).join('')
+      expect(text(50, units.slice(0, 3))).toBe('┌ For each Unit ✓catalog  ✓checkout  ▶payments')
+      expect(text(44, units)).toBe('┌ For each of 5 Units  ✓2 ▶payments ·2')
+      expect(text(30, units)).toBe('┌ For each of 5 Units  ✓2 ▶p…')
     })
   })
 
   describe('Edge Cases', () => {
+    test('with one Unit, brackets no stages and keeps the legend short', () => {
+      const progress = unitsProgress(CODE_GENERATION_RUNNING, [ORDERS_IN_CODE_GENERATION], undefined, ['auth'])
+      const lines = shape(layoutPane(progress, 60, false))
+      expect(lines.filter(line => line.startsWith('units ') || line === 'once' || / (mid|end)/.test(line))).toEqual([])
+      expect(lines).toContain('legend ·todo  –skipped')
+    })
+
+    test('with the skipped stages folded, closes the bracket on the last per-Unit stage still shown', () => {
+      const progress = unitsProgress(CODE_GENERATION_RUNNING, [ORDERS_IN_CODE_GENERATION])
+      const lines = shape(layoutPane(progress, 3, false))
+      const at = lines.indexOf('phase CONSTRUCTION')
+      expect(lines.slice(at, at + 7)).toEqual([
+        'phase CONSTRUCTION', 'units done:auth running:orders todo:billing', 'stage 3.1 mid 2/3', 'stage 3.5 end 1/3',
+        'once', 'stage 3.6', 'skipped 4',
+      ])
+    })
+
     test('folds only as much as the height lacks', () => {
       const lines = shape(layoutPane(progressOf(REQUIREMENTS_RUNNING), 45, false))
       expect(lines).toHaveLength(43)
@@ -287,8 +390,8 @@ describe('laying out the pane', () => {
         boxes: {},
         kinds: Object.fromEntries(GRAPH.map(stage => [stage.slug, 'SKIP'])),
       })
-      const progress = buildProgress('empty', state, GRAPH, { stage: '' }, null)
-      expect(summaryLines(progress)).toEqual(['empty', 'Done 0/0 · 33 stages total', 'Now —'])
+      const progress = buildProgress('empty', state, GRAPH, { stage: '', unit: '' }, NO_UNITS)
+      expect(summaryLines(progress)).toEqual(['empty', 'Done 0/0 stages of 33', 'Now —'])
     })
   })
 
@@ -296,7 +399,7 @@ describe('laying out the pane', () => {
     test('never folds the summary or the legend, even when nothing fits', () => {
       const lines = shape(layoutPane(progressOf(REQUIREMENTS_RUNNING), 3, false))
       expect(lines.slice(0, 4)).toEqual([
-        'summary stage-pane-ui', 'summary Done 6/9 · 33 stages total', 'summary Now ▶ 2.3 Requirements Analysis', 'blank',
+        'summary stage-pane-ui', 'summary Done 6/9 stages of 33', 'summary Now ▶ 2.3 Requirements Analysis', 'blank',
       ])
       expect(lines.slice(-4)).toEqual(['rule', 'legend ✓done  ▶running  ?approval  ↺revising', 'legend ·todo  –skipped', 'legend-tones'])
       expect(lines).toHaveLength(20)

@@ -1,22 +1,20 @@
 import { atom, read, update } from 'claude-code'
 import type { EngineInterface, Register } from 'claude-code'
 
-import type { PaneView, Progress, UnitProgress } from '../types'
+import type { PaneView, Progress } from '../types'
 import { drawPane } from './pane'
 import {
-  approvedUnits,
   buildProgress,
   intentFromLine,
-  isUnitMajorConstruction,
   ProgressReadError,
+  readUnitLedger,
   readStageGraph,
   recordDirFor,
   shownStep,
   spaceFromCursor,
   unitNames,
-  unitProgressOf,
 } from './progress'
-import type { DirectiveMarker } from './progress'
+import type { DirectiveMarker, UnitFacts } from './progress'
 
 // AI-DLC's own renderer is run instead of reading aidlc-state.md here: which
 // intent a session shows (its binding, the active-intent cursor, archived
@@ -120,20 +118,21 @@ async function readMarker($: EngineInterface, record: string, stateFile: string)
   return { text: String(await $.fs.read(path)), isFresh: marker.mtimeMs >= state.mtimeMs }
 }
 
-async function readUnits($: EngineInterface, record: string, active: string): Promise<UnitProgress | null> {
+const NO_UNITS: UnitFacts = { names: [], ledger: readUnitLedger([], []) }
+
+async function readUnits($: EngineInterface, record: string): Promise<UnitFacts> {
   try {
     const dag = await readOptional($, `${record}/inception/units-generation/unit-of-work-dependency.md`)
-    if (dag === null) return null
-    const units = unitNames(dag)
-    if (units.length === 0) return null
+    const names = dag === null ? [] : unitNames(dag)
+    if (names.length < 2) return NO_UNITS
     const audit = `${record}/audit`
-    const files = (await $.fs.list(audit)).filter(entry => entry.name.endsWith('.md'))
+    const files = (await $.fs.list(audit).catch(() => [])).filter(entry => entry.name.endsWith('.md'))
     const audits = await Promise.all(files.map(async entry => String(await $.fs.read(`${audit}/${entry.name}`))))
-    return unitProgressOf(units, approvedUnits(audits, units), active)
+    return { names, ledger: readUnitLedger(audits, names) }
   } catch (error) {
-    // Unit progress is extra: the stages still show without it, as on AI-DLC's own line.
-    $.ui.log(`aidlc-phase: Unit progress not read: ${messageOf(error)}`, { to: 'debug' })
-    return null
+    // Units are extra: counts read from half the audit would be wrong, so the stages show without them.
+    $.ui.log(`aidlc-phase: Units not read: ${messageOf(error)}`, { to: 'debug' })
+    return NO_UNITS
   }
 }
 
@@ -147,8 +146,7 @@ async function loadProgress($: EngineInterface, project: string, text: string): 
   const state = String(await $.fs.read(stateFile))
   const graph = readStageGraph(String(await $.fs.read(`${project}/${STAGE_GRAPH}`)))
   const shown = shownStep(state, await readMarker($, record, stateFile))
-  const units = isUnitMajorConstruction(state) ? await readUnits($, record, shown.unit) : null
-  return buildProgress(intent.slug, state, graph, shown, units)
+  return buildProgress(intent.slug, state, graph, shown, await readUnits($, record))
 }
 
 function messageOf(error: unknown): string {

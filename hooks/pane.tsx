@@ -6,8 +6,9 @@ import {
   ERROR_LINES,
   LOADING_LINE,
   MARK_SYMBOL,
-  UNIT_SYMBOL,
+  ONCE_LINE,
   layoutPane,
+  unitHeader,
 } from './progress'
 import type { PaneLine } from './progress'
 
@@ -16,6 +17,10 @@ export const TONE_COLORS: Record<StageTone, string> = {
   conditional: 'warning',
   none: 'inactive',
 }
+
+export const UNITS_COLOR = 'success'
+
+const NAME_WIDTH = 26
 
 export type PaneSize = { bodyRows: number; bodyColumns: number }
 
@@ -31,15 +36,32 @@ function drawLine({ Text }: ElementTable, line: PaneLine, size: PaneSize) {
       return <Text bold>{line.text}</Text>
     case 'phase-done':
       return <Text wrap="truncate-end">✓ {line.text}</Text>
-    case 'stage':
+    case 'units':
       return (
-        <Text inverse={line.isCurrent} bold={line.isCurrent} wrap="truncate-end">
-          {MARK_SYMBOL[line.stage.mark]} <Text color={TONE_COLORS[line.stage.tone]}>{line.stage.number} {line.stage.name}</Text>
-          {line.unitLabel === '' ? '' : `  ${line.unitLabel}`}
+        <Text wrap="truncate-end">
+          {unitHeader(line.units, size.bodyColumns).map(part =>
+            part.isMark ? <Text color={UNITS_COLOR}>{part.text}</Text> : part.text)}
         </Text>
       )
-    case 'unit':
-      return <Text wrap="truncate-end">{`    ${UNIT_SYMBOL[line.unit.mark]} ${line.unit.name}`}</Text>
+    case 'once':
+      return <Text color={UNITS_COLOR} wrap="truncate-end">{ONCE_LINE}</Text>
+    case 'stage': {
+      const label = `${line.stage.number} ${line.stage.name}`
+      const row = (
+        <Text inverse={line.isCurrent} bold={line.isCurrent} wrap="truncate-end">
+          {MARK_SYMBOL[line.stage.mark]} <Text color={TONE_COLORS[line.stage.tone]}>{label}</Text>
+        </Text>
+      )
+      if (line.bracket === null) return row
+      return (
+        <Text wrap="truncate-end">
+          <Text color={UNITS_COLOR}>{line.bracket === 'end' ? '└ ' : '│ '}</Text>
+          {row}
+          {line.unitCount === '' ? '' : ' '.repeat(Math.max(1, NAME_WIDTH - label.length))}
+          {line.unitCount === '' ? '' : <Text color={UNITS_COLOR} dimColor>{line.unitCount}</Text>}
+        </Text>
+      )
+    }
     case 'skipped':
       return <Text wrap="truncate-end">– <Text color={TONE_COLORS.none}>{String(line.count)} skipped</Text></Text>
     case 'rule':

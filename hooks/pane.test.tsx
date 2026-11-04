@@ -2,8 +2,8 @@ import { describe, expect, test } from 'claude-code/testing'
 import type { Engine } from 'claude-code/testing'
 import type { On } from 'claude-code'
 
-import { INTENTS_JSON, REQUIREMENTS_RUNNING, ROUGH_MOCKUPS_RUNNING, STAGE_GRAPH, auditEntry, stateText, unitDag } from './fixtures'
-import { EMPTY_LINES, ERROR_LINES, LOADING_LINE, MARK_LEGEND, MARK_SYMBOL, STALE_NOTICE, UNIT_SYMBOL } from './progress'
+import { INTENTS_JSON, REQUIREMENTS_RUNNING, ROUGH_MOCKUPS_RUNNING, STAGE_GRAPH, auditOf, stateText, unitDag, unitEvent } from './fixtures'
+import { EMPTY_LINES, ERROR_LINES, LOADING_LINE, MARK_LEGEND, MARK_SYMBOL, ONCE_LINE, STALE_NOTICE, UNITS_LEGEND, UNIT_SYMBOL } from './progress'
 
 const PROJECT = '/work/app'
 const PANE = 'aidlc-phase'
@@ -172,7 +172,7 @@ describe('aidlc-phase pane', () => {
         expect(colors.filter(color => color === 'warning')).toHaveLength(2)
         expect(colors.filter(color => color === 'inactive')).toHaveLength(24)
         expect(await ui.find({ type: 'Text', text: 'stage-pane-ui' })).toBeDefined()
-        expect((await ui.find({ type: 'Text', text: /^Done / }))?.text).toBe('Done 4/9 · 33 stages total')
+        expect((await ui.find({ type: 'Text', text: /^Done / }))?.text).toBe('Done 4/9 stages of 33')
         expect(await ui.find({ type: 'Text', text: '✓done  ▶running  ?approval  ↺revising' })).toBeDefined()
         expect((await ui.find({ type: 'Text', text: /^Color:/ }))?.text).toBe('Color: ■ always ■ conditional ■ skipped')
         await ui.unmount()
@@ -218,7 +218,7 @@ describe('aidlc-phase pane', () => {
       await $.turn.complete(TURN)
       await settle()
       expect((await ui.find({ type: 'Text', text: /^Now / }))?.text).toBe('Now ▶ 2.3 Requirements Analysis')
-      expect((await ui.find({ type: 'Text', text: /^Done / }))?.text).toBe('Done 6/9 · 33 stages total')
+      expect((await ui.find({ type: 'Text', text: /^Done / }))?.text).toBe('Done 6/9 stages of 33')
       await ui.unmount()
     })
 
@@ -250,24 +250,29 @@ describe('aidlc-phase pane', () => {
       await ui.unmount()
     })
 
-    test('working one Unit at a time, lists the Units indented under the stage under way, uncolored', async ($, on) => {
+    test('with three Units, brackets the stages run per Unit in green, the Units on top, and the stage under way inverse', async ($, on) => {
       const files = {
         ...baseFiles(stateText({
           boxes: { ...REQUIREMENTS_RUNNING, 'requirements-analysis': 'x', 'code-generation': '-' },
           fields: { 'Lifecycle Phase': 'CONSTRUCTION', 'Construction Iteration': 'unit-major' },
         })),
         [`${RECORD}/inception/units-generation/unit-of-work-dependency.md`]: unitDag(['u1', 'u2', 'u3']),
-        [`${RECORD}/audit/host-1.md`]: '# Audit\n\n' + auditEntry('GATE_APPROVED', 'u1', '2026-10-20T01:00:00Z'),
+        [`${RECORD}/audit/host-1.md`]: auditOf(
+          unitEvent('UNIT_COMPLETED', 'code-generation', 'u1', '2026-10-20T01:00:00Z'),
+          unitEvent('UNIT_STARTED', 'code-generation', 'u2', '2026-10-20T02:00:00Z'),
+        ),
         [`${RECORD}/.aidlc-engine/active-directive.json`]: JSON.stringify({ stage: 'code-generation', unit: 'u2' }),
       }
       stage(on, { files, stdout: '[AIDLC] stage-pane-ui · CONSTRUCTION Unit 2 of 3 > Code Generation for u2\n' })
       await $.session.start(START)
       await settle()
       const ui = await mount($, true)
-      expect((await ui.find({ type: 'Text', text: /^▶ 3\.5 / }))?.text).toBe('▶ 3.5 Code Generation  Unit 2/3')
-      const units = await ui.findAll({ type: 'Text', text: /^ {4}/ })
-      expect(units.map(unit => unit.text)).toEqual(['    ✓ u1', '    ▶ u2', '    · u3'])
-      expect(units.every(unit => unit.props.color === undefined)).toBe(true)
+      expect((await ui.find({ type: 'Text', text: /^┌ / }))?.text).toBe('┌ For each Unit ✓u1  ▶u2  ·u3')
+      const current = await ui.find({ type: 'Text', text: /^└ ▶ 3\.5 / })
+      expect(current?.text).toBe('└ ▶ 3.5 Code Generation       1/3')
+      expect((await ui.findAll({ type: 'Text', text: '▶ 3.5 Code Generation' })).some(text => text.props.inverse === true)).toBe(true)
+      expect((await ui.find({ type: 'Text', text: '  then once for all Units' }))?.props.color).toBe('success')
+      expect((await ui.find({ type: 'Text', text: /^Now / }))?.text).toBe('Now ▶ 3.5 Code Generation · u2')
       await ui.unmount()
     })
   })
@@ -345,7 +350,7 @@ describe('aidlc-phase pane', () => {
       expect(texts.some(text => /^✓ [A-Z]+ \d+\/\d+ done/.test(text))).toBe(true)
       expect(texts.some(text => /^– \d+ skipped$/.test(text))).toBe(true)
       const messages = [
-        ...Object.values(MARK_SYMBOL), ...Object.values(UNIT_SYMBOL),
+        ...Object.values(MARK_SYMBOL), ...Object.values(UNIT_SYMBOL), UNITS_LEGEND, ONCE_LINE,
         STALE_NOTICE, ...EMPTY_LINES, ...ERROR_LINES, LOADING_LINE, ...MARK_LEGEND,
       ]
       expect([...texts, ...messages].filter(text => JAPANESE.test(text))).toEqual([])

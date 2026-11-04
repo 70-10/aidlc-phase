@@ -1,4 +1,4 @@
-import type { Progress, StageMark, StageRow, StageTone, UnitMark, UnitProgress, UnitRow } from '../types'
+import type { Progress, StageMark, StageRow, StageTone, UnitMark, UnitRow } from '../types'
 
 export class ProgressReadError extends Error {
   constructor(message: string) {
@@ -7,7 +7,14 @@ export class ProgressReadError extends Error {
   }
 }
 
-export type StageInfo = { slug: string; number: string; name: string; phase: string; execution: 'ALWAYS' | 'CONDITIONAL' }
+export type StageInfo = {
+  slug: string
+  number: string
+  name: string
+  phase: string
+  execution: 'ALWAYS' | 'CONDITIONAL'
+  isPerUnit: boolean
+}
 
 export type IntentRef = { space: string | null; slug: string }
 
@@ -64,14 +71,14 @@ export function readStageGraph(json: string): StageInfo[] {
   for (const row of rows as Array<Record<string, unknown>>) {
     // Stages a plugin adds carry `plugin`; only AI-DLC's own are listed.
     if (row === null || typeof row !== 'object' || row.plugin !== undefined) continue
-    const { slug, number, name, phase, execution } = row
+    const { slug, number, name, phase, execution, for_each } = row
     if (
       typeof slug !== 'string' || typeof number !== 'string' || typeof name !== 'string' ||
       typeof phase !== 'string' || (execution !== 'ALWAYS' && execution !== 'CONDITIONAL')
     ) {
       throw new ProgressReadError(`stage-graph.json has a stage it cannot read: ${String(slug)}`)
     }
-    stages.push({ slug, number, name, phase, execution })
+    stages.push({ slug, number, name, phase, execution, isPerUnit: for_each === 'unit-of-work' })
   }
   if (stages.length === 0) throw new ProgressReadError('stage-graph.json lists no stage')
   return stages
@@ -116,7 +123,10 @@ export function readStageProgress(state: string, graph: readonly StageInfo[]): S
     const mark = marks.get(stage.slug)
     if (mark === undefined) throw new ProgressReadError(`aidlc-state.md has no row for ${stage.slug}`)
     const tone: StageTone = mark === 'skipped' ? 'none' : stage.execution === 'ALWAYS' ? 'always' : 'conditional'
-    return { slug: stage.slug, number: stage.number, name: stage.name, phase: stage.phase, mark, tone }
+    return {
+      slug: stage.slug, number: stage.number, name: stage.name, phase: stage.phase, mark, tone,
+      isPerUnit: stage.isPerUnit, unitsDone: null,
+    }
   })
 }
 
@@ -147,73 +157,128 @@ export function shownStep(state: string, marker: DirectiveMarker | null): { stag
   }
 }
 
+// The first yaml block holding `units:`, as AI-DLC reads it: the heading above it is written in the Intent's language.
 export function unitNames(dag: string): string[] {
-  const block = /## Machine-Readable Edge Block[\s\S]*?```ya?ml\r?\n([\s\S]*?)```/.exec(dag)?.[1] ?? ''
+  const blocks = [...dag.matchAll(/^```ya?ml[^\S\n]*\r?\n([\s\S]*?)^```/gm)].map(match => match[1]!)
+  const block = blocks.find(text => /^\s*units\s*:/m.test(text)) ?? ''
   return [...block.matchAll(/^\s*-\s+name:\s*([A-Za-z0-9][A-Za-z0-9._-]{0,63})\s*$/gm)].map(match => match[1]!)
 }
 
-export function approvedUnits(audits: readonly string[], units: readonly string[]): string[] {
-  const rows: Array<{ at: string; isApproved: boolean; unit: string }> = []
+export type UnitLedger = { completed: ReadonlyMap<string, ReadonlySet<string>>; open: string | null }
+
+const UNIT_EVENTS = new Set(['UNIT_STARTED', 'UNIT_PAUSED', 'UNIT_RESUMED', 'UNIT_COMPLETED', 'UNIT_SKIPPED'])
+const UNIT_FINISHED = new Set(['UNIT_COMPLETED', 'UNIT_SKIPPED'])
+
+// Not AI-DLC's run floors: the latest record of a Unit at a stage wins, which is enough until a jump back.
+export function readUnitLedger(audits: readonly string[], units: readonly string[]): UnitLedger {
+  const rows: Array<{ at: string; event: string; stage: string; unit: string }> = []
   for (const audit of audits) {
     for (const entry of audit.split(/\n## /)) {
-      if (!/^\*\*Checkpoint\*\*: construction-unit$/m.test(entry)) continue
       const event = /^\*\*Event\*\*:\s*(\S+)/m.exec(entry)?.[1] ?? ''
-      if (event !== 'GATE_APPROVED' && event !== 'GATE_REJECTED') continue
+      if (!UNIT_EVENTS.has(event)) continue
+      const stage = /^\*\*Stage\*\*:\s*(\S+)/m.exec(entry)?.[1] ?? ''
       const unit = /^\*\*Unit\*\*:\s*(.+)$/m.exec(entry)?.[1]?.trim() ?? ''
       const at = /^\*\*Timestamp\*\*:\s*(.+)$/m.exec(entry)?.[1]?.trim() ?? ''
-      rows.push({ at, isApproved: event === 'GATE_APPROVED', unit })
+      if (units.includes(unit)) rows.push({ at, event, stage, unit })
     }
   }
-  const done = new Set<string>()
-  for (const row of rows.sort((a, b) => a.at.localeCompare(b.at))) {
-    if (!units.includes(row.unit)) continue
-    if (row.isApproved) done.add(row.unit)
-    else done.delete(row.unit)
+  const latest = new Map<string, (typeof rows)[number]>()
+  for (const row of rows.sort((a, b) => a.at.localeCompare(b.at))) latest.set(`${row.stage}\n${row.unit}`, row)
+  const completed = new Map<string, Set<string>>()
+  let open: (typeof rows)[number] | null = null
+  for (const row of latest.values()) {
+    if (UNIT_FINISHED.has(row.event)) {
+      completed.set(row.stage, (completed.get(row.stage) ?? new Set()).add(row.unit))
+    } else if (row.event !== 'UNIT_PAUSED' && (open === null || row.at >= open.at)) {
+      open = row
+    }
   }
-  return units.filter(unit => done.has(unit))
+  return { completed, open: open?.unit ?? null }
 }
 
-export function unitProgressOf(units: readonly string[], approved: readonly string[], active: string): UnitProgress | null {
-  if (units.length === 0 || approved.length >= units.length) return null
-  const rows = units.map(name => {
-    const mark: UnitMark = approved.includes(name) ? 'done' : name === active ? 'running' : 'todo'
-    return { name, mark }
-  })
-  return { current: approved.length + 1, total: units.length, units: rows }
-}
-
-export function isUnitMajorConstruction(state: string): boolean {
-  return extractField(state, 'Construction Iteration') === 'unit-major' && extractField(state, 'Lifecycle Phase') === 'CONSTRUCTION'
-}
+export type UnitFacts = { names: readonly string[]; ledger: UnitLedger }
 
 export function buildProgress(
   intent: string,
   state: string,
   graph: readonly StageInfo[],
-  shown: { stage: string },
-  units: UnitProgress | null,
+  shown: { stage: string; unit: string },
+  facts: UnitFacts,
 ): Progress {
-  const stages = readStageProgress(state, graph)
-  const slugs = new Set(stages.map(stage => stage.slug))
+  const rows = readStageProgress(state, graph)
+  const slugs = new Set(rows.map(stage => stage.slug))
   const fallback = extractField(state, 'Current Stage')
   const current = slugs.has(shown.stage) ? shown.stage : slugs.has(fallback) ? fallback : null
-  const { done, planned } = countPlanned(stages)
   const status = extractField(state, 'Status')
-  const isComplete = status === 'Completed' || status === 'Complete' || (planned > 0 && done === planned)
-  return { intent, stages, current, isComplete, units: current === null ? null : units }
+  const isAllDone = (stages: readonly StageRow[]) => {
+    const { done, planned } = countPlanned(stages)
+    return status === 'Completed' || status === 'Complete' || (planned > 0 && done === planned)
+  }
+  const { names, ledger } = facts
+  if (names.length < 2) return { intent, stages: rows, current, isComplete: isAllDone(rows), units: null }
+
+  const at = rows.findIndex(stage => stage.slug === current)
+  const lastPerUnit = rows.findLastIndex(stage => stage.isPerUnit)
+  const isPast = isAllDone(rows) || at > lastPerUnit
+  const finished = (slug: string) => names.filter(name => ledger.completed.get(slug)?.has(name)).length
+  const stages = rows.map(stage => {
+    if (!stage.isPerUnit || stage.mark === 'skipped') return stage
+    const counted = finished(stage.slug)
+    // AI-DLC's mark wins over a count of 0: a stage done before Units were recorded has no Unit record.
+    const unitsDone = isPast || (stage.mark === 'done' && counted === 0) ? names.length : counted
+    const isPartly = (stage.mark === 'todo' || stage.mark === 'done') && unitsDone > 0 && unitsDone < names.length
+    return { ...stage, unitsDone, mark: isPartly ? 'partly' : stage.mark } satisfies StageRow
+  })
+  const planned = stages.filter(stage => stage.isPerUnit && stage.mark !== 'skipped')
+  const active = shown.unit !== '' && names.includes(shown.unit) ? shown.unit : ledger.open
+  const units = names.map(name => {
+    const hasFinished = (stage: StageRow) => isPast || stage.unitsDone === names.length || ledger.completed.get(stage.slug)?.has(name) === true
+    const mark: UnitMark = planned.every(hasFinished)
+      ? 'done'
+      : name === active ? 'running' : planned.some(hasFinished) ? 'partly' : 'todo'
+    return { name, mark }
+  })
+  return { intent, stages, current, isComplete: isAllDone(stages), units }
 }
 
 export const MARK_SYMBOL: Record<StageMark, string> = {
-  done: '✓', running: '▶', awaiting: '?', revising: '↺', todo: '·', skipped: '–',
+  done: '✓', running: '▶', awaiting: '?', revising: '↺', partly: '◐', todo: '·', skipped: '–',
 }
 
-export const UNIT_SYMBOL: Record<UnitMark, string> = { done: '✓', running: '▶', todo: '·' }
+export const UNIT_SYMBOL: Record<UnitMark, string> = { done: '✓', running: '▶', partly: '◐', todo: '·' }
 
 export const STALE_NOTICE = 'Could not read the latest state'
 export const EMPTY_LINES = ['No intent in progress', 'Start work with /aidlc to see progress here']
 export const ERROR_LINES = ['Could not read progress', 'Run /aidlc --doctor to find the cause']
 export const LOADING_LINE = 'Loading…'
 export const MARK_LEGEND = ['✓done  ▶running  ?approval  ↺revising', '·todo  –skipped']
+export const UNITS_LEGEND = `${MARK_LEGEND[1]}  ◐partly  n/N Units done`
+export const ONCE_LINE = '  then once for all Units'
+
+export type HeaderPart = { text: string; isMark: boolean }
+
+export function unitHeader(units: readonly UnitRow[], columns: number): HeaderPart[] {
+  const full: HeaderPart[] = [{ text: '┌ For each Unit ', isMark: true }]
+  units.forEach((unit, index) => {
+    full.push({ text: UNIT_SYMBOL[unit.mark], isMark: true }, { text: unit.name + (index < units.length - 1 ? '  ' : ''), isMark: false })
+  })
+  const width = (parts: readonly HeaderPart[]) => parts.reduce((sum, part) => sum + [...part.text].length, 0)
+  if (width(full) <= columns) return full
+  const count = (mark: UnitMark) => units.filter(unit => unit.mark === mark).length
+  const running = units.find(unit => unit.mark === 'running')?.name ?? ''
+  const tail: HeaderPart[] = [
+    { text: `┌ For each of ${units.length} Units  `, isMark: true },
+    { text: UNIT_SYMBOL.done, isMark: true }, { text: `${count('done')} `, isMark: false },
+    ...(running === '' ? [] : [{ text: UNIT_SYMBOL.running, isMark: true }, { text: `${running} `, isMark: false }]),
+    ...(count('partly') === 0 ? [] : [{ text: UNIT_SYMBOL.partly, isMark: true }, { text: `${count('partly')} `, isMark: false }]),
+    { text: UNIT_SYMBOL.todo, isMark: true }, { text: `${count('todo')}`, isMark: false },
+  ]
+  const over = width(tail) - columns
+  if (over <= 0 || running === '') return tail
+  const named = tail.findIndex(part => part.text === `${running} `)
+  const kept = Math.max(1, running.length - over - 1)
+  return [...tail.slice(0, named), { text: `${running.slice(0, kept)}…`, isMark: false }]
+}
 
 export type PaneLine =
   | { kind: 'notice'; text: string }
@@ -221,8 +286,9 @@ export type PaneLine =
   | { kind: 'blank' }
   | { kind: 'phase'; text: string }
   | { kind: 'phase-done'; text: string }
-  | { kind: 'stage'; stage: StageRow; isCurrent: boolean; unitLabel: string }
-  | { kind: 'unit'; unit: UnitRow }
+  | { kind: 'units'; units: UnitRow[] }
+  | { kind: 'stage'; stage: StageRow; isCurrent: boolean; bracket: 'mid' | 'end' | null; unitCount: string }
+  | { kind: 'once' }
   | { kind: 'skipped'; count: number }
   | { kind: 'rule' }
   | { kind: 'legend'; text: string }
@@ -236,7 +302,14 @@ export function summaryLines(progress: Progress): string[] {
     : current === undefined
       ? 'Now —'
       : `Now ${MARK_SYMBOL[current.mark]} ${current.number} ${current.name}${current.mark === 'awaiting' ? ' (approval)' : ''}`
-  return [progress.intent, `Done ${done}/${planned} · ${progress.stages.length} stages total`, now]
+  const units = progress.units
+  const running = current?.isPerUnit ? units?.find(unit => unit.mark === 'running')?.name : undefined
+  const unitsDone = units ? ` · Units ${units.filter(unit => unit.mark === 'done').length}/${units.length}` : ''
+  return [
+    progress.intent,
+    `Done ${done}/${planned} stages of ${progress.stages.length}${unitsDone}`,
+    `${now}${progress.isComplete || running === undefined ? '' : ` · ${running}`}`,
+  ]
 }
 
 type PhaseBlock = { phase: string; stages: StageRow[]; isDoneFolded: boolean; isSkipFolded: boolean }
@@ -264,12 +337,16 @@ function blockLines(block: PhaseBlock, progress: Progress): PaneLine[] {
     return [{ kind: 'phase-done', text: `${label} ${planned}/${planned} done${skipped > 0 ? ` · ${skipped} skipped` : ''}` }]
   }
   const lines: PaneLine[] = [{ kind: 'phase', text: label }]
-  for (const stage of block.stages) {
-    if (block.isSkipFolded && stage.mark === 'skipped') continue
-    const isCurrent = stage.slug === progress.current
-    const units = isCurrent ? progress.units : null
-    lines.push({ kind: 'stage', stage, isCurrent, unitLabel: units ? `Unit ${units.current}/${units.total}` : '' })
-    for (const unit of units?.units ?? []) lines.push({ kind: 'unit', unit })
+  const shown = block.stages.filter(stage => !(block.isSkipFolded && stage.mark === 'skipped'))
+  const units = progress.units
+  const perUnit = units === null ? [] : shown.filter(stage => stage.isPerUnit)
+  for (const [index, stage] of shown.entries()) {
+    const isBracketed = perUnit.includes(stage)
+    if (stage === perUnit[0]) lines.push({ kind: 'units', units: units! })
+    if (!isBracketed && perUnit.includes(shown[index - 1]!)) lines.push({ kind: 'once' })
+    const bracket = !isBracketed ? null : stage === perUnit.at(-1) ? 'end' : 'mid'
+    const unitCount = isBracketed && stage.unitsDone !== null ? `${stage.unitsDone}/${units!.length}` : ''
+    lines.push({ kind: 'stage', stage, isCurrent: stage.slug === progress.current, bracket, unitCount })
   }
   if (block.isSkipFolded && skipped > 0) lines.push({ kind: 'skipped', count: skipped })
   return lines
@@ -283,7 +360,8 @@ export function layoutPane(progress: Progress, bodyRows: number, isStale: boolea
   ]
   const tail: PaneLine[] = [
     { kind: 'rule' },
-    ...MARK_LEGEND.map(text => ({ kind: 'legend', text }) as const),
+    { kind: 'legend', text: MARK_LEGEND[0]! },
+    { kind: 'legend', text: progress.units === null ? MARK_LEGEND[1]! : UNITS_LEGEND },
     { kind: 'legend-tones' },
   ]
   const blocks = phaseBlocks(progress.stages)

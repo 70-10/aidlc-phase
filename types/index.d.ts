@@ -1,4 +1,4 @@
-export type StageMark = 'done' | 'running' | 'awaiting' | 'revising' | 'todo' | 'skipped'
+export type StageMark = 'done' | 'running' | 'awaiting' | 'revising' | 'partly' | 'todo' | 'skipped'
 
 export type StageTone = 'always' | 'conditional' | 'none'
 
@@ -10,21 +10,19 @@ export type StageRow = {
   mark: StageMark
   tone: StageTone
   isPerUnit: boolean
+  unitsDone: number | null
 }
 
-export type UnitMark = 'done' | 'running' | 'todo'
+export type UnitMark = 'done' | 'running' | 'partly' | 'todo'
 
 export type UnitRow = { name: string; mark: UnitMark }
-
-export type UnitProgress = { current: number; total: number; units: UnitRow[] }
 
 export type Progress = {
   intent: string
   stages: StageRow[]
   current: string | null
   isComplete: boolean
-  units: UnitProgress | null
-  unitTotal: number
+  units: UnitRow[] | null
 }
 
 export type PaneView =

@@ -121,13 +121,22 @@ export function unitDag(names: readonly string[]): string {
   ].join('\n')
 }
 
-export function auditEntry(event: 'GATE_APPROVED' | 'GATE_REJECTED', unit: string, at: string): string {
+const UNIT_HEADINGS = { UNIT_STARTED: 'Unit Started', UNIT_COMPLETED: 'Unit Completed', UNIT_SKIPPED: 'Unit Skipped' }
+
+export function unitEvent(event: keyof typeof UNIT_HEADINGS, stage: string, unit: string, at: string): string {
   return [
-    `## ${event}`,
+    `## ${UNIT_HEADINGS[event]}`,
     `**Timestamp**: ${at}`,
     `**Event**: ${event}`,
-    '**Checkpoint**: construction-unit',
+    `**Stage**: ${stage}`,
     `**Unit**: ${unit}`,
+    '**Run floor**: WORKFLOW_STARTED:2026-10-20T00:00:00Z#1',
+    '',
+    '---',
     '',
   ].join('\n')
+}
+
+export function auditOf(...entries: string[]): string {
+  return ['# AI-DLC Audit Log', '', ...entries].join('\n')
 }

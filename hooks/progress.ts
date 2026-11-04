@@ -7,7 +7,14 @@ export class ProgressReadError extends Error {
   }
 }
 
-export type StageInfo = { slug: string; number: string; name: string; phase: string; execution: 'ALWAYS' | 'CONDITIONAL' }
+export type StageInfo = {
+  slug: string
+  number: string
+  name: string
+  phase: string
+  execution: 'ALWAYS' | 'CONDITIONAL'
+  isPerUnit: boolean
+}
 
 export type IntentRef = { space: string | null; slug: string }
 
@@ -64,14 +71,14 @@ export function readStageGraph(json: string): StageInfo[] {
   for (const row of rows as Array<Record<string, unknown>>) {
     // Stages a plugin adds carry `plugin`; only AI-DLC's own are listed.
     if (row === null || typeof row !== 'object' || row.plugin !== undefined) continue
-    const { slug, number, name, phase, execution } = row
+    const { slug, number, name, phase, execution, for_each } = row
     if (
       typeof slug !== 'string' || typeof number !== 'string' || typeof name !== 'string' ||
       typeof phase !== 'string' || (execution !== 'ALWAYS' && execution !== 'CONDITIONAL')
     ) {
       throw new ProgressReadError(`stage-graph.json has a stage it cannot read: ${String(slug)}`)
     }
-    stages.push({ slug, number, name, phase, execution })
+    stages.push({ slug, number, name, phase, execution, isPerUnit: for_each === 'unit-of-work' })
   }
   if (stages.length === 0) throw new ProgressReadError('stage-graph.json lists no stage')
   return stages
@@ -200,7 +207,8 @@ export function buildProgress(
   const { done, planned } = countPlanned(stages)
   const status = extractField(state, 'Status')
   const isComplete = status === 'Completed' || status === 'Complete' || (planned > 0 && done === planned)
-  return { intent, stages, current, isComplete, units: current === null ? null : units }
+  const isPerUnit = graph.find(stage => stage.slug === current)?.isPerUnit === true
+  return { intent, stages, current, isComplete, units: isPerUnit ? units : null }
 }
 
 export const MARK_SYMBOL: Record<StageMark, string> = {

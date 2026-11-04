@@ -34,8 +34,13 @@ const STAGES: ReadonlyArray<readonly [string, string, string, string, 'ALWAYS' |
   ['4.7', 'feedback-optimization', 'Feedback & Optimization', 'operation', 'CONDITIONAL'],
 ]
 
+const PER_UNIT = new Set(['functional-design', 'nfr-requirements', 'nfr-design', 'infrastructure-design', 'code-generation'])
+
 export const STAGE_GRAPH = JSON.stringify([
-  ...STAGES.map(([number, slug, name, phase, execution]) => ({ slug, number, name, phase, execution, scopes: [] })),
+  ...STAGES.map(([number, slug, name, phase, execution]) => ({
+    slug, number, name, phase, execution, scopes: [],
+    ...(PER_UNIT.has(slug) ? { for_each: 'unit-of-work' } : {}),
+  })),
   { slug: 'acme-review', number: '2.10', name: 'Acme Review', phase: 'inception', execution: 'ALWAYS', plugin: 'acme' },
 ])
 

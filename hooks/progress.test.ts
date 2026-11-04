@@ -54,7 +54,12 @@ describe('reading AI-DLC files', () => {
       expect(GRAPH.some(stage => stage.slug === 'acme-review')).toBe(false)
       expect(GRAPH[23]).toEqual({
         slug: 'code-generation', number: '3.5', name: 'Code Generation', phase: 'construction', execution: 'ALWAYS',
+        isPerUnit: true,
       })
+    })
+
+    test('runs 3.1 to 3.5 once per Unit, and every other stage once', () => {
+      expect(GRAPH.filter(stage => stage.isPerUnit).map(stage => stage.number)).toEqual(['3.1', '3.2', '3.3', '3.4', '3.5'])
     })
 
     test('marks the 9 stages this Intent runs, 7 always and 2 conditional, and the rest as not run', () => {
@@ -266,6 +271,16 @@ describe('laying out the pane', () => {
       const lines = shape(layoutPane(progress, 60, false))
       const at = lines.indexOf('stage 3.5 Unit 2/3')
       expect(lines.slice(at, at + 4)).toEqual(['stage 3.5 Unit 2/3', 'unit u1 done', 'unit u2 running', 'unit u3 todo'])
+    })
+
+    test('lists no Units under Build and Test, which runs once for all Units', () => {
+      const boxes = { ...REQUIREMENTS_RUNNING, 'requirements-analysis': 'x', 'code-generation': 'x', 'build-and-test': '-' }
+      const state = stateText({ boxes, fields: { 'Lifecycle Phase': 'CONSTRUCTION', 'Construction Iteration': 'unit-major' } })
+      const progress = buildProgress('stage-pane-ui', state, GRAPH, { stage: 'build-and-test' }, unitProgressOf(['u1', 'u2', 'u3'], [], ''))
+      expect(progress.units).toBeNull()
+      const lines = shape(layoutPane(progress, 60, false))
+      expect(lines).toContain('stage 3.6')
+      expect(lines.filter(line => line.startsWith('unit '))).toEqual([])
     })
   })
 

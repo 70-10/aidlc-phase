@@ -1,5 +1,6 @@
 {
   "name": "aidlc-phase",
+  "version": "0.2.0",
   "description": "Show every AI-DLC stage and where the work is in a pane beside the chat, or the phase and stage on a line separate from your own statusLine",
   "types": "./types/index.d.ts",
   "userConfig": {

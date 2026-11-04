@@ -226,7 +226,7 @@ export function buildProgress(
     const counted = finished(stage.slug)
     // AI-DLC's mark wins over a count of 0: a stage done before Units were recorded has no Unit record.
     const unitsDone = isPast || (stage.mark === 'done' && counted === 0) ? names.length : counted
-    const isPartly = stage.slug !== current && unitsDone > 0 && unitsDone < names.length
+    const isPartly = (stage.mark === 'todo' || stage.mark === 'done') && unitsDone > 0 && unitsDone < names.length
     return { ...stage, unitsDone, mark: isPartly ? 'partly' : stage.mark } satisfies StageRow
   })
   const planned = stages.filter(stage => stage.isPerUnit && stage.mark !== 'skipped')

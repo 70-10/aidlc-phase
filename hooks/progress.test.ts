@@ -196,6 +196,14 @@ describe('reading AI-DLC files', () => {
       expect(progress.stages.find(stage => stage.slug === 'functional-design')).toMatchObject({ mark: 'done', unitsDone: 3 })
     })
 
+    test('keeps AI-DLC\'s running, approval and revising marks on a stage some Units have finished', () => {
+      for (const [box, mark] of [['-', 'running'], ['?', 'awaiting'], ['R', 'revising']] as const) {
+        const boxes = { ...CODE_GENERATION_RUNNING, 'functional-design': box }
+        const progress = unitsProgress(boxes, [ORDERS_IN_CODE_GENERATION], { stage: 'code-generation', unit: 'orders' })
+        expect(progress.stages.find(stage => stage.slug === 'functional-design')).toMatchObject({ mark, unitsDone: 2 })
+      }
+    })
+
     test('names the Unit AI-DLC last put to the person as the one under way', () => {
       const progress = unitsProgress(CODE_GENERATION_RUNNING, [], { stage: 'code-generation', unit: 'billing' })
       expect(progress.units?.find(unit => unit.mark === 'running')?.name).toBe('billing')
